@@ -1,114 +1,74 @@
+
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html>
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Bússola</title>
 
 <style>
 body{
     margin:0;
+    background:black;
     display:flex;
     justify-content:center;
     align-items:center;
     height:100vh;
-    background:#111;
 }
 
 img{
     width:300px;
-    max-width:90vw;
 }
 </style>
 </head>
+
 <body>
 
-<img id="bussola" src="bussola/0.png">
+<img id="bussola" src="./bussola/0.png">
 
 <script>
 
-const sprites = [
-  "0.png",
-  "12.png",
-  "25.png",
-  "37.png",
-  "50.png",
-  "62.png",
-  "74.png",
-  "90.png",
-  "99.png",
-  "112.png",
-  "124.png",
-  "137.png",
-  "149.png",
-  "180.png",
-  "186.png",
-  "199.png",
-  "211.png",
-  "236.png",
-  "248.png",
-  "270.png",
-  "286.png",
-  "298.png",
-  "310.png",
-  "323.png",
-  "335.png",
-  "348.png",
-  "355.png"
+// coloque aqui TODOS os ângulos que possuem imagem
+const direcoes = [
+    0,13,25,38,50,63,75,88,
+    100,113,125,138,150,163,
+    175,188,200,213,225,238,
+    250,263,275,288,300,313,
+    325,338,350
 ];
 
-const img = document.getElementById("bussola");
+function imagemMaisProxima(grau){
 
-function spriteMaisProximo(angulo){
+    let melhor = direcoes[0];
+    let menorDiferenca = 360;
 
-    let melhor = sprites[0];
-    let menorDistancia = Infinity;
+    for(const d of direcoes){
 
-    for(const arquivo of sprites){
+        let diff = Math.abs(grau - d);
 
-        const grau = parseInt(arquivo);
+        // trata a volta de 359° para 0°
+        diff = Math.min(diff, 360 - diff);
 
-        let distancia =
-            Math.abs(angulo - grau);
-
-        distancia =
-            Math.min(distancia,
-                     360 - distancia);
-
-        if(distancia < menorDistancia){
-            menorDistancia = distancia;
-            melhor = arquivo;
+        if(diff < menorDiferenca){
+            menorDiferenca = diff;
+            melhor = d;
         }
     }
 
     return melhor;
 }
 
-function atualizar(angulo){
+window.addEventListener("deviceorientation", (event)=>{
 
-    const sprite =
-        spriteMaisProximo(angulo);
+    const grau = event.alpha;
 
-    img.src = "bussola/" + sprite;
+    if(grau == null) return;
 
-    console.log(
-        "Ângulo:",
-        Math.round(angulo),
-        "Sprite:",
-        sprite
-    );
-}
+    const direcao = imagemMaisProxima(grau);
 
-window.addEventListener(
-    "deviceorientation",
-    e => {
+    document.getElementById("bussola").src =
+        `./bussola/${direcao}.png`;
 
-        if(e.alpha == null)
-            return;
-
-        atualizar(e.alpha);
-    }
-);
+});
 
 </script>
 
