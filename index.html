@@ -1,348 +1,76 @@
+
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Flip Clock Retro - Diego</title>
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap');
+<meta charset="UTF-8">
+<title>Bússola</title>
 
-        :root {
-            /* Variáveis iniciais (Tema 1 - Clássico Dark) */
-            --bg-color: #2b2b2b;
-            --card-bg: #1a1a1a;
-            --text-color: #e0e0e0;
-            --shadow-color: rgba(0, 0, 0, 0.5);
-            --font-family: 'Bebas Neue', sans-serif;
-            --card-width: 80px;
-            --card-height: 120px;
-            --font-size: 90px; /* Aumentei um pouco para preencher melhor */
-            --animation-speed: 0.6s;
-        }
+<style>
+body{
+    margin:0;
+    background:black;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    height:100vh;
+}
 
-        * {
-            box-sizing: border-box;
-            user-select: none;
-            -webkit-tap-highlight-color: transparent;
-        }
-
-        body {
-            margin: 0;
-            padding: 0;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            background-color: var(--bg-color);
-            font-family: var(--font-family);
-            transition: background-color 0.5s ease;
-            overflow: hidden;
-            cursor: pointer;
-        }
-
-        .instructions {
-            position: absolute;
-            bottom: 20px;
-            color: var(--text-color);
-            opacity: 0.3;
-            font-family: sans-serif;
-            font-size: 0.9rem;
-            letter-spacing: 1px;
-            transition: color 0.5s ease;
-            text-align: center;
-            width: 100%;
-        }
-
-        /* Container do Relógio */
-        .clock {
-            display: flex;
-            gap: 15px;
-            perspective: 1000px;
-        }
-
-        .group {
-            display: flex;
-            gap: 5px;
-        }
-
-        .separator {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: var(--font-size);
-            color: var(--text-color);
-            margin-top: -10px;
-            opacity: 0.5;
-        }
-
-        /* Estrutura do Cartão Flip */
-        .flip-card {
-            position: relative;
-            width: var(--card-width);
-            height: var(--card-height);
-            background-color: var(--card-bg);
-            border-radius: 8px;
-            color: var(--text-color);
-            box-shadow: 0 4px 10px var(--shadow-color);
-            transition: background-color 0.5s ease, color 0.5s ease;
-            /* Garante que o texto não vaze do cartão arredondado */
-        }
-
-        /* CONFIGURAÇÃO DE ALINHAMENTO FIXO (O segredo da correção) */
-        .top, .bottom, .top-flip, .bottom-flip {
-            position: absolute;
-            left: 0;
-            width: 100%;
-            height: 50%; /* Cada parte ocupa metade do cartão */
-            overflow: hidden;
-            background-color: var(--card-bg);
-            transition: background-color 0.5s ease, color 0.5s ease;
-            backface-visibility: hidden;
-        }
-
-        /* O Texto dentro das partes */
-        .top-text, .bottom-text {
-            display: block;
-            width: 100%;
-            height: 200%; /* O texto tem a altura COMPLETA do cartão (2x a metade) */
-            position: absolute;
-            left: 0;
-            text-align: center;
-            line-height: var(--card-height); /* Centraliza verticalmente na altura total */
-            font-size: var(--font-size);
-        }
-
-        /* Metade Superior */
-        .top, .top-flip {
-            top: 0;
-            border-radius: 6px 6px 0 0;
-            border-bottom: 1px solid rgba(0,0,0,0.1);
-            transform-origin: bottom;
-        }
-        
-        /* Na metade de cima, o texto encosta no topo */
-        .top .top-text, .top-flip .top-text {
-            top: 0;
-        }
-
-        /* Metade Inferior */
-        .bottom, .bottom-flip {
-            bottom: 0;
-            border-radius: 0 0 6px 6px;
-            border-top: 1px solid rgba(0,0,0,0.1);
-            transform-origin: top;
-        }
-
-        /* Na metade de baixo, o texto encosta no fundo, "puxando" a parte de cima para fora da visão (overflow hidden) */
-        .bottom .bottom-text, .bottom-flip .bottom-text {
-            bottom: 0; 
-        }
-
-        /* Estados iniciais da animação */
-        .top-flip {
-            z-index: 2;
-            transform: rotateX(0deg);
-        }
-
-        .bottom-flip {
-            z-index: 1;
-            transform: rotateX(90deg);
-        }
-
-        /* Animação */
-        .flip-card.flipping .top-flip {
-            z-index: 3;
-            animation: flip-top var(--animation-speed) ease-in forwards;
-        }
-
-        .flip-card.flipping .bottom-flip {
-            z-index: 4;
-            animation: flip-bottom var(--animation-speed) ease-out forwards;
-        }
-
-        @keyframes flip-top {
-            0% { transform: rotateX(0deg); }
-            100% { transform: rotateX(-90deg); }
-        }
-
-        @keyframes flip-bottom {
-            0% { transform: rotateX(90deg); }
-            100% { transform: rotateX(0deg); }
-        }
-
-        /* Responsividade */
-        @media (max-width: 600px) {
-            :root {
-                --card-width: 45px;
-                --card-height: 70px;
-                --font-size: 50px;
-            }
-            .clock { gap: 8px; }
-            .group { gap: 3px; }
-            .separator { margin-top: -5px; font-size: 40px; }
-        }
-    </style>
+img{
+    width:300px;
+}
+</style>
 </head>
+
 <body>
 
-    <div class="clock" id="clock">
-        <!-- Horas -->
-        <div class="group">
-            <div class="flip-card" data-key="h1">
-                <div class="top"><span class="top-text">0</span></div>
-                <div class="bottom"><span class="bottom-text">0</span></div>
-                <div class="top-flip"><span class="top-text">0</span></div>
-                <div class="bottom-flip"><span class="bottom-text">0</span></div>
-            </div>
-            <div class="flip-card" data-key="h2">
-                <div class="top"><span class="top-text">0</span></div>
-                <div class="bottom"><span class="bottom-text">0</span></div>
-                <div class="top-flip"><span class="top-text">0</span></div>
-                <div class="bottom-flip"><span class="bottom-text">0</span></div>
-            </div>
-        </div>
+<img id="bussola" src="./bussola/0.png">
 
-        <div class="separator">:</div>
+<script>
 
-        <!-- Minutos -->
-        <div class="group">
-            <div class="flip-card" data-key="m1">
-                <div class="top"><span class="top-text">0</span></div>
-                <div class="bottom"><span class="bottom-text">0</span></div>
-                <div class="top-flip"><span class="top-text">0</span></div>
-                <div class="bottom-flip"><span class="bottom-text">0</span></div>
-            </div>
-            <div class="flip-card" data-key="m2">
-                <div class="top"><span class="top-text">0</span></div>
-                <div class="bottom"><span class="bottom-text">0</span></div>
-                <div class="top-flip"><span class="top-text">0</span></div>
-                <div class="bottom-flip"><span class="bottom-text">0</span></div>
-            </div>
-        </div>
+// coloque aqui TODOS os ângulos que possuem imagem
+const direcoes = [
+    0,13,25,38,50,63,75,88,
+    100,113,125,138,150,163,
+    175,188,200,213,225,238,
+    250,263,275,288,300,313,
+    325,338,350
+];
 
-        <div class="separator">:</div>
+function imagemMaisProxima(grau){
 
-        <!-- Segundos -->
-        <div class="group">
-            <div class="flip-card" data-key="s1">
-                <div class="top"><span class="top-text">0</span></div>
-                <div class="bottom"><span class="bottom-text">0</span></div>
-                <div class="top-flip"><span class="top-text">0</span></div>
-                <div class="bottom-flip"><span class="bottom-text">0</span></div>
-            </div>
-            <div class="flip-card" data-key="s2">
-                <div class="top"><span class="top-text">0</span></div>
-                <div class="bottom"><span class="bottom-text">0</span></div>
-                <div class="top-flip"><span class="top-text">0</span></div>
-                <div class="bottom-flip"><span class="bottom-text">0</span></div>
-            </div>
-        </div>
-    </div>
+    let melhor = direcoes[0];
+    let menorDiferenca = 360;
 
-    <div class="instructions">Toque na tela para mudar o estilo</div>
+    for(const d of direcoes){
 
-    <script>
-        // --- Configuração dos Temas ---
-        const themes = [
-            { // 1. Clássico Dark
-                bg: '#2b2b2b', card: '#1a1a1a', text: '#e0e0e0', shadow: 'rgba(0,0,0,0.5)'
-            },
-            { // 2. Retro Orange (Braun Style)
-                bg: '#e8e8e8', card: '#ff6b00', text: '#ffffff', shadow: 'rgba(0,0,0,0.2)'
-            },
-            { // 3. Cyberpunk Neon
-                bg: '#050514', card: '#121225', text: '#00f3ff', shadow: 'rgba(0, 243, 255, 0.2)'
-            },
-            { // 4. Elegant Sage (Verde Sálvia)
-                bg: '#8da399', card: '#ebf0ee', text: '#4a5d55', shadow: 'rgba(74, 93, 85, 0.3)'
-            },
-            { // 5. Vintage Cream & Coffee
-                bg: '#f4ecd8', card: '#4b3621', text: '#f4ecd8', shadow: 'rgba(75, 54, 33, 0.4)'
-            },
-            { // 6. Deep Ocean
-                bg: '#0f172a', card: '#1e293b', text: '#38bdf8', shadow: 'rgba(0,0,0,0.4)'
-            }
-        ];
+        let diff = Math.abs(grau - d);
 
-        let currentTheme = 0;
+        // trata a volta de 359° para 0°
+        diff = Math.min(diff, 360 - diff);
 
-        function changeTheme() {
-            currentTheme = (currentTheme + 1) % themes.length;
-            const theme = themes[currentTheme];
-            
-            const root = document.documentElement;
-            root.style.setProperty('--bg-color', theme.bg);
-            root.style.setProperty('--card-bg', theme.card);
-            root.style.setProperty('--text-color', theme.text);
-            root.style.setProperty('--shadow-color', theme.shadow);
+        if(diff < menorDiferenca){
+            menorDiferenca = diff;
+            melhor = d;
         }
+    }
 
-        document.body.addEventListener('click', changeTheme);
-        document.body.addEventListener('touchstart', (e) => {
-            changeTheme();
-        });
+    return melhor;
+}
 
-        // --- Lógica do Relógio Flip ---
-        let previousTime = { h1:null, h2:null, m1:null, m2:null, s1:null, s2:null };
+window.addEventListener("deviceorientation", (event)=>{
 
-        function updateClock() {
-            const now = new Date();
-            const h = String(now.getHours()).padStart(2, '0');
-            const m = String(now.getMinutes()).padStart(2, '0');
-            const s = String(now.getSeconds()).padStart(2, '0');
+    const grau = event.alpha;
 
-            const timeParts = {
-                h1: h[0], h2: h[1],
-                m1: m[0], m2: m[1],
-                s1: s[0], s2: s[1]
-            };
+    if(grau == null) return;
 
-            for (const key in timeParts) {
-                const newVal = timeParts[key];
-                const oldVal = previousTime[key];
+    const direcao = imagemMaisProxima(grau);
 
-                if (newVal !== oldVal) {
-                    flipDigit(key, newVal);
-                    previousTime[key] = newVal;
-                }
-            }
-        }
+    document.getElementById("bussola").src =
+        `./bussola/${direcao}.png`;
 
-        function flipDigit(key, newVal) {
-            const card = document.querySelector(`.flip-card[data-key="${key}"]`);
-            if (!card) return;
+});
 
-            const top = card.querySelector('.top .top-text');
-            const bottom = card.querySelector('.bottom .bottom-text');
-            const topFlip = card.querySelector('.top-flip .top-text');
-            const bottomFlip = card.querySelector('.bottom-flip .bottom-text');
-            
-            const currentVal = previousTime[key] === null ? newVal : previousTime[key];
+</script>
 
-            // Setup
-            card.classList.remove('flipping');
-            void card.offsetWidth; // Trigger reflow
-
-            // O estático de fundo já mostra o novo valor (o destino)
-            top.innerText = newVal;
-            bottom.innerText = currentVal; // O fundo de baixo segura o valor antigo até a animação cobrir
-            
-            // As partes móveis
-            topFlip.innerText = currentVal;   // O topo velho cai
-            bottomFlip.innerText = newVal;    // O fundo novo sobe (ou melhor, é revelado)
-            
-            card.classList.add('flipping');
-
-            setTimeout(() => {
-                card.classList.remove('flipping');
-                bottom.innerText = newVal; 
-                topFlip.innerText = newVal; 
-            }, 600);
-        }
-
-        setInterval(updateClock, 1000);
-        updateClock(); 
-    </script>
 </body>
 </html>
-
