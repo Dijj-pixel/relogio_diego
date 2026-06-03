@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bússola</title>
+
+<style>
+body{
+    margin:0;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    height:100vh;
+    background:#111;
+}
+
+img{
+    width:300px;
+    max-width:90vw;
+}
+</style>
+</head>
+<body>
+
+<img id="bussola" src="bussola/0.png">
+
+<script>
+
+const sprites = [
+  "0.png",
+  "12.png",
+  "25.png",
+  "37.png",
+  "50.png",
+  "62.png",
+  "74.png",
+  "90.png",
+  "99.png",
+  "112.png",
+  "124.png",
+  "137.png",
+  "149.png",
+  "180.png",
+  "186.png",
+  "199.png",
+  "211.png",
+  "236.png",
+  "248.png",
+  "270.png",
+  "286.png",
+  "298.png",
+  "310.png",
+  "323.png",
+  "335.png",
+  "348.png",
+  "355.png"
+];
+
+const img = document.getElementById("bussola");
+
+function spriteMaisProximo(angulo){
+
+    let melhor = sprites[0];
+    let menorDistancia = Infinity;
+
+    for(const arquivo of sprites){
+
+        const grau = parseInt(arquivo);
+
+        let distancia =
+            Math.abs(angulo - grau);
+
+        distancia =
+            Math.min(distancia,
+                     360 - distancia);
+
+        if(distancia < menorDistancia){
+            menorDistancia = distancia;
+            melhor = arquivo;
+        }
+    }
+
+    return melhor;
+}
+
+function atualizar(angulo){
+
+    const sprite =
+        spriteMaisProximo(angulo);
+
+    img.src = "bussola/" + sprite;
+
+    console.log(
+        "Ângulo:",
+        Math.round(angulo),
+        "Sprite:",
+        sprite
+    );
+}
+
+window.addEventListener(
+    "deviceorientation",
+    e => {
+
+        if(e.alpha == null)
+            return;
+
+        atualizar(e.alpha);
+    }
+);
+
+</script>
+
+</body>
+</html>
