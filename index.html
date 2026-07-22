@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html>
 <head>
@@ -13,17 +12,26 @@ body{
     justify-content:center;
     align-items:center;
     height:100vh;
+    flex-direction: column;
+    gap: 20px;
 }
 
 img{
     width:300px;
+}
+
+#debug{
+    color: #00ff00;
+    font-family: monospace;
+    font-size: 14px;
 }
 </style>
 </head>
 
 <body>
 
-<img id="bussola" src="./bussola/0.png">
+<img id="bussola" src="./0.png" loading="lazy" decoding="async">
+<div id="debug">Aguardando sensor...</div>
 
 <script>
 
@@ -35,6 +43,14 @@ const direcoes = [
     250,263,275,288,300,313,
     325,338,350
 ];
+
+// Pré-carregar as imagens em background
+const cache = {};
+direcoes.forEach(angle => {
+    const img = new Image();
+    img.src = `./${angle}.png`;
+    cache[angle] = img;
+});
 
 function imagemMaisProxima(grau){
 
@@ -57,6 +73,8 @@ function imagemMaisProxima(grau){
     return melhor;
 }
 
+let ultimaDirecao = null;
+
 window.addEventListener("deviceorientation", (event)=>{
 
     const grau = event.alpha;
@@ -65,9 +83,21 @@ window.addEventListener("deviceorientation", (event)=>{
 
     const direcao = imagemMaisProxima(grau);
 
-    document.getElementById("bussola").src =
-        `./bussola/${direcao}.png`;
+    // Só atualiza se mudou de direção (evita requisições desnecessárias)
+    if(direcao !== ultimaDirecao){
+        ultimaDirecao = direcao;
+        document.getElementById("bussola").src = cache[direcao].src;
+        document.getElementById("debug").textContent = `Grau: ${grau.toFixed(1)}° → Imagem: ${direcao}.png`;
+    }
 
+});
+
+// Fallback para dispositivos que não suportam
+window.addEventListener("load", ()=>{
+    if(typeof DeviceOrientationEvent === 'undefined'){
+        document.getElementById("debug").textContent = "❌ Sensor de bússola não suportado";
+        document.getElementById("debug").style.color = "#ff0000";
+    }
 });
 
 </script>
