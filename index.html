@@ -1,105 +1,173 @@
 <!DOCTYPE html>
-<html>
+<html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Bússola</title>
 
 <style>
-body{
+  html, body{
     margin:0;
-    background:black;
+    height:100%;
+    background:#000;
+    overflow:hidden;
+  }
+
+  body{
     display:flex;
-    justify-content:center;
     align-items:center;
-    height:100vh;
-    flex-direction: column;
-    gap: 20px;
-}
+    justify-content:center;
+  }
 
-img{
-    width:300px;
-}
+  /* 80% da largura da tela, sempre quadrado */
+  #bussola{
+    position:relative;
+    width:80vw;
+    width:min(80vw, 80vh);   /* navegadores novos */
+    width:min(80vw, 80dvh);  /* evita estourar com a barra do navegador */
+    aspect-ratio:1 / 1;
+    opacity:0;
+    transition:opacity .2s ease;
+  }
 
-#debug{
-    color: #00ff00;
-    font-family: monospace;
-    font-size: 14px;
-}
+  /* só aparece quando as imagens já estão prontas */
+  #bussola.pronta{ opacity:1; }
+
+  #bussola img{
+    position:absolute;
+    inset:0;
+    width:100%;
+    height:100%;
+    object-fit:contain;
+    visibility:hidden;      /* troca instantânea, sem piscar */
+    pointer-events:none;
+    user-select:none;
+    -webkit-user-select:none;
+    -webkit-user-drag:none;
+  }
+
+  #bussola img.ativa{ visibility:visible; }
 </style>
 </head>
 
 <body>
 
-<img id="bussola" src="./0.png" loading="lazy" decoding="async">
-<div id="debug">Aguardando sensor...</div>
+<div id="bussola"></div>
 
 <script>
+(function(){
+  'use strict';
 
-// coloque aqui TODOS os ângulos que possuem imagem
-const direcoes = [
+  // Todos os ângulos que possuem imagem
+  const direcoes = [
     0,13,25,38,50,63,75,88,
     100,113,125,138,150,163,
     175,188,200,213,225,238,
     250,263,275,288,300,313,
     325,338,350
-];
+  ];
 
-// Pré-carregar as imagens em background
-const cache = {};
-direcoes.forEach(angle => {
-    const img = new Image();
-    img.src = `./${angle}.png`;
-    cache[angle] = img;
-});
+  const PASTA = './bussola/';  // pasta principal das imagens
+  const RAIZ  = './';          // fallback: imagem na raiz
 
-function imagemMaisProxima(grau){
+  const palco = document.getElementById('bussola');
+  const camadas = new Map();   // angulo -> <img> já carregado no DOM
 
+  let pendentes = direcoes.length;
+  let ultimaDirecao = null;
+
+  function concluirCarregamento(){
+    if (--pendentes <= 0) palco.classList.add('pronta');
+  }
+
+  // ---------------------------------------------------------------
+  // 1) PRÉ-CARREGAMENTO DE VERDADE
+  //    Todas as imagens entram no DOM de uma vez (empilhadas) e
+  //    ficam só com visibility:hidden. Trocar de direção = trocar
+  //    uma classe. Zero requisição, zero atraso, zero piscada.
+  // ---------------------------------------------------------------
+  direcoes.forEach(function(angulo){
+    const img = document.createElement('img');
+    img.alt = '';
+    img.decoding = 'sync';
+
+    img.addEventListener('error', function(){
+      // não achou em ./bussola/ ? tenta na raiz, uma única vez
+      if (!img.dataset.fallback){
+        img.dataset.fallback = '1';
+        img.src = RAIZ + angulo + '.png';
+        return;
+      }
+      concluirCarregamento(); // falhou de vez, não trava a tela
+    });
+
+    img.addEventListener('load', concluirCarregamento);
+
+    img.src = PASTA + angulo + '.png';
+    palco.appendChild(img);
+    camadas.set(angulo, img);
+  });
+
+  // ---------------------------------------------------------------
+  // 2) LÓGICA DA BÚSSOLA
+  // ---------------------------------------------------------------
+  function imagemMaisProxima(grau){
     let melhor = direcoes[0];
-    let menorDiferenca = 360;
+    let menorDiferenca = Infinity;
 
-    for(const d of direcoes){
-
-        let diff = Math.abs(grau - d);
-
-        // trata a volta de 359° para 0°
-        diff = Math.min(diff, 360 - diff);
-
-        if(diff < menorDiferenca){
-            menorDiferenca = diff;
-            melhor = d;
-        }
+    for (const d of direcoes){
+      let diff = Math.abs(grau - d);
+      diff = Math.min(diff, 360 - diff); // trata a volta 359° -> 0°
+      if (diff < menorDiferenca){
+        menorDiferenca = diff;
+        melhor = d;
+      }
     }
-
     return melhor;
-}
+  }
 
-let ultimaDirecao = null;
+  function mostrar(direcao){
+    if (direcao === ultimaDirecao) return;
 
-window.addEventListener("deviceorientation", (event)=>{
+    const nova = camadas.get(direcao);
+    if (!nova) return;
 
-    const grau = event.alpha;
+    const antiga = camadas.get(ultimaDirecao);
+    if (antiga) antiga.classList.remove('ativa');
 
-    if(grau == null) return;
+    nova.classList.add('ativa');
+    ultimaDirecao = direcao;
+  }
 
-    const direcao = imagemMaisProxima(grau);
+  function aoGirar(event){
+    let grau = event.alpha;
+    if (grau == null) return;
 
-    // Só atualiza se mudou de direção (evita requisições desnecessárias)
-    if(direcao !== ultimaDirecao){
-        ultimaDirecao = direcao;
-        document.getElementById("bussola").src = cache[direcao].src;
-        document.getElementById("debug").textContent = `Grau: ${grau.toFixed(1)}° → Imagem: ${direcao}.png`;
-    }
+    grau = ((grau % 360) + 360) % 360;
+    mostrar(imagemMaisProxima(grau));
+  }
 
-});
+  window.addEventListener('deviceorientation', aoGirar, true);
 
-// Fallback para dispositivos que não suportam
-window.addEventListener("load", ()=>{
-    if(typeof DeviceOrientationEvent === 'undefined'){
-        document.getElementById("debug").textContent = "❌ Sensor de bússola não suportado";
-        document.getElementById("debug").style.color = "#ff0000";
-    }
-});
+  // iOS 13+ exige permissão — pede no primeiro toque, sem botão na tela
+  if (typeof DeviceOrientationEvent !== 'undefined' &&
+      typeof DeviceOrientationEvent.requestPermission === 'function') {
 
+    const pedirPermissao = function(){
+      DeviceOrientationEvent.requestPermission()
+        .then(function(resposta){
+          if (resposta === 'granted'){
+            window.addEventListener('deviceorientation', aoGirar, true);
+          }
+        })
+        .catch(function(){ /* silencioso */ });
+    };
+
+    window.addEventListener('touchend', pedirPermissao, { once:true });
+    window.addEventListener('click',    pedirPermissao, { once:true });
+  }
+
+})();
 </script>
 
 </body>
