@@ -26,7 +26,6 @@
     user-select: none;
   }
 
-  /* 80% da largura, sempre quadrado, e nunca estourando a altura */
   #bussola {
     width:  min(80vw, 80vh);
     height: min(80vw, 80vh);
@@ -48,7 +47,6 @@
      1. CONFIGURAÇÃO
      --------------------------------------------------------- */
 
-  // Ângulos que possuem imagem (o "nome numérico" de cada fatia).
   const DIRECOES = [
     0,13,25,38,50,63,75,88,
     100,113,125,138,150,163,
@@ -57,7 +55,6 @@
     325,338,350
   ];
 
-  // Onde procurar os PNGs. Tenta a raiz, depois ./bussola/.
   const CAMINHOS = ['./', './bussola/'];
 
   /* ---------------------------------------------------------
@@ -67,25 +64,21 @@
   const canvas = document.getElementById('bussola');
   const ctx    = canvas.getContext('2d', { alpha: true, desynchronized: true });
 
-  const imagens = new Array(DIRECOES.length).fill(null); // índice -> HTMLImageElement
-  const lut     = new Int16Array(360).fill(-1);          // grau (0-359) -> índice
-  let ultimo    = -1;                                    // índice atualmente desenhado
+  const imagens = new Array(DIRECOES.length).fill(null);
+  const lut     = new Int16Array(360).fill(-1);
+  let ultimo    = -1;
+  let pronto    = false;   // só aceita sensor depois da LUT montada
 
   /* ---------------------------------------------------------
-     3. CARREGAMENTO (com fallback de pasta + decode)
+     3. CARREGAMENTO
      --------------------------------------------------------- */
 
   function carregar(nome) {
-    // Tenta cada pasta com um Image NOVO — nunca reaproveita um que já falhou,
-    // porque onerror/onload depois de um src que falhou são pouco confiáveis.
     return new Promise(resolve => {
       let i = 0;
 
       const tentar = () => {
-        if (i >= CAMINHOS.length) {
-          resolve(null);
-          return;
-        }
+        if (i >= CAMINHOS.length) { resolve(null); return; }
 
         const img = new Image();
         const src = CAMINHOS[i] + nome;
@@ -93,7 +86,7 @@
 
         let resolvido = false;
         const finalizar = (valor) => {
-          if (resolvido) return;   // onload E onerror podem disparar juntos em alguns browsers
+          if (resolvido) return;
           resolvido = true;
           resolve(valor);
         };
@@ -106,7 +99,7 @@
           }
         };
 
-        img.onerror = () => tentar();  // próximo caminho, novo Image
+        img.onerror = () => tentar();
         img.src = src;
       };
 
@@ -115,7 +108,7 @@
   }
 
   /* ---------------------------------------------------------
-     4. CONSTRUÇÃO DA LUT (grau -> índice da imagem)
+     4. LUT
      --------------------------------------------------------- */
 
   function construirLUT() {
@@ -125,8 +118,6 @@
     }
     if (!disponiveis.length) return;
 
-    // Para cada um dos 360 graus, acha o ângulo mais próximo UMA VEZ.
-    // Depois é só lut[grau] — sem loop nenhum durante o movimento.
     for (let g = 0; g < 360; g++) {
       let melhor = disponiveis[0];
       let menor  = 361;
@@ -148,7 +139,7 @@
   }
 
   /* ---------------------------------------------------------
-     5. DESENHO (troca imediata, sem reflow)
+     5. DESENHO
      --------------------------------------------------------- */
 
   function desenhar(idx) {
@@ -159,7 +150,6 @@
 
     ultimo = idx;
 
-    // Ajusta o backing store do canvas pro tamanho real da imagem (só uma vez).
     if (canvas.width !== img.naturalWidth || canvas.height !== img.naturalHeight) {
       canvas.width  = img.naturalWidth;
       canvas.height = img.naturalHeight;
@@ -170,36 +160,45 @@
   }
 
   /* ---------------------------------------------------------
-     6. SENSOR
+     6. SENSOR — agora filtra por QUALIDADE, não por ordem
      --------------------------------------------------------- */
 
-  let modoAbsoluto = false;
-  let ativo        = false;
-  let pedindo      = false;
-
   function aoOrientar(e) {
-    // Se já temos um evento absoluto, ignora os relativos (evita "briga").
-    if (e.type === 'deviceorientationabsolute' || e.absolute === true) {
-      modoAbsoluto = true;
-    } else if (modoAbsoluto) {
-      return;
+    if (!pronto) return;
+
+    // 1) iOS: rumo magnético direto.
+    let grau = e.webkitCompassHeading;
+    let fonte = 'webkitCompassHeading';
+
+    // 2) Android/Chrome: só aceita alpha se for ABSOLUTO.
+    if (typeof grau !== 'number' || !isFinite(grau)) {
+      const ehAbsoluto =
+        e.type === 'deviceorientationabsolute' || e.absolute === true;
+
+      if (!ehAbsoluto) return;          // <-- o pulo do gato: ignora relativo
+
+      grau  = e.alpha;
+      fonte = 'alpha(absolute)';
     }
 
-    // iOS entrega o rumo direto em webkitCompassHeading.
-    let grau = e.webkitCompassHeading;
-    if (typeof grau !== 'number' || !isFinite(grau)) grau = e.alpha;
     if (typeof grau !== 'number' || !isFinite(grau)) return;
 
     grau = ((grau % 360) + 360) % 360;
 
     const idx = lut[grau | 0];
     if (idx >= 0) desenhar(idx);
+
+    // Diagnóstico opcional:
+    // console.log(fonte, grau.toFixed(1), '->', DIRECOES[idx]);
   }
 
   function escutar() {
     window.addEventListener('deviceorientationabsolute', aoOrientar, true);
     window.addEventListener('deviceorientation',         aoOrientar, true);
   }
+
+  let ativo   = false;
+  let pedindo = false;
 
   function iniciar() {
     if (ativo || pedindo) return;
@@ -208,7 +207,6 @@
       return;
     }
 
-    // iOS 13+ exige um gesto do usuário.
     if (typeof DeviceOrientationEvent.requestPermission === 'function') {
       pedindo = true;
       DeviceOrientationEvent.requestPermission()
@@ -228,7 +226,6 @@
      --------------------------------------------------------- */
 
   (async function boot() {
-    // Carrega + decodifica TUDO antes de ligar o sensor.
     await Promise.all(
       DIRECOES.map((ang, i) =>
         carregar(ang + '.png').then(img => {
@@ -242,24 +239,15 @@
     console.log(`Imagens carregadas: ${ok}/${DIRECOES.length}`);
 
     construirLUT();
+    pronto = true;
 
-    // Mostra alguma coisa na tela imediatamente.
-    for (let i = 0; i < imagens.length; i++) {
-      if (imagens[i]) { desenhar(i); break; }
-    }
+    // Desenha a fatia inicial (a mais próxima de 0° que existe).
+    const inicial = lut[0];
+    if (inicial >= 0) desenhar(inicial);
 
-    // Tenta ligar o sensor já; no iOS o primeiro toque resolve.
     iniciar();
     document.addEventListener('click',    iniciar);
     document.addEventListener('touchend', iniciar, { passive: true });
-
-    // Diagnóstico do sensor: rode isto e gire o celular pra ver qual
-    // campo varia de 0 a 360. Descomente quando precisar investigar.
-    // window.addEventListener('deviceorientation', e => {
-    //   console.log('alpha:', e.alpha,
-    //               '| compass:', e.webkitCompassHeading,
-    //               '| abs:', e.absolute);
-    // }, true);
   })();
 
 })();
