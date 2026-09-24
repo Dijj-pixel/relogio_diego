@@ -76,30 +76,41 @@
      --------------------------------------------------------- */
 
   function carregar(nome) {
+    // Tenta cada pasta com um Image NOVO — nunca reaproveita um que já falhou,
+    // porque onerror/onload depois de um src que falhou são pouco confiáveis.
     return new Promise(resolve => {
-      const img = new Image();
       let i = 0;
 
-      img.onerror = () => {
+      const tentar = () => {
+        if (i >= CAMINHOS.length) {
+          resolve(null);
+          return;
+        }
+
+        const img = new Image();
+        const src = CAMINHOS[i] + nome;
         i++;
-        if (i < CAMINHOS.length) {
-          img.src = CAMINHOS[i] + nome;      // tenta a próxima pasta
-        } else {
-          resolve(null);                     // não achou em lugar nenhum
-        }
+
+        let resolvido = false;
+        const finalizar = (valor) => {
+          if (resolvido) return;   // onload E onerror podem disparar juntos em alguns browsers
+          resolvido = true;
+          resolve(valor);
+        };
+
+        img.onload = () => {
+          if (img.decode) {
+            img.decode().then(() => finalizar(img)).catch(() => finalizar(img));
+          } else {
+            finalizar(img);
+          }
+        };
+
+        img.onerror = () => tentar();  // próximo caminho, novo Image
+        img.src = src;
       };
 
-      img.onload = () => {
-        // decode() garante que a imagem já está pronta pra pintar no canvas,
-        // então a troca depois é instantânea (zero decode em runtime).
-        if (img.decode) {
-          img.decode().catch(() => {}).then(() => resolve(img));
-        } else {
-          resolve(img);
-        }
-      };
-
-      img.src = CAMINHOS[0] + nome;
+      tentar();
     });
   }
 
@@ -220,9 +231,15 @@
     // Carrega + decodifica TUDO antes de ligar o sensor.
     await Promise.all(
       DIRECOES.map((ang, i) =>
-        carregar(ang + '.png').then(img => { imagens[i] = img; })
+        carregar(ang + '.png').then(img => {
+          imagens[i] = img;
+          if (!img) console.warn('Faltando:', ang + '.png');
+        })
       )
     );
+
+    const ok = imagens.filter(Boolean).length;
+    console.log(`Imagens carregadas: ${ok}/${DIRECOES.length}`);
 
     construirLUT();
 
@@ -235,6 +252,14 @@
     iniciar();
     document.addEventListener('click',    iniciar);
     document.addEventListener('touchend', iniciar, { passive: true });
+
+    // Diagnóstico do sensor: rode isto e gire o celular pra ver qual
+    // campo varia de 0 a 360. Descomente quando precisar investigar.
+    // window.addEventListener('deviceorientation', e => {
+    //   console.log('alpha:', e.alpha,
+    //               '| compass:', e.webkitCompassHeading,
+    //               '| abs:', e.absolute);
+    // }, true);
   })();
 
 })();
