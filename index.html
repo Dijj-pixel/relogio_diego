@@ -6,223 +6,236 @@
 <meta name="theme-color" content="#000000">
 <title>Bússola</title>
 <style>
-  html, body{
-    margin:0;
-    height:100%;
-    background:#000;
-    overflow:hidden;
-    overscroll-behavior:none;
-  }
-  body{
-    display:flex;
-    align-items:center;
-    justify-content:center;
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: #000;
+    overflow: hidden;
   }
 
-  /* 80% da largura da tela, sempre quadrado, sem estourar a altura */
-  #bussola{
-    position:relative;
-    width: min(80vw, 80vh);
+  body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right)
+             env(safe-area-inset-bottom) env(safe-area-inset-left);
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  /* 80% da largura, sempre quadrado, e nunca estourando a altura */
+  #bussola {
+    width:  min(80vw, 80vh);
     height: min(80vw, 80vh);
-    aspect-ratio: 1 / 1;
-    contain: layout paint style; /* isola a pintura: troca não repinta o resto */
+    display: block;
+    pointer-events: none;
   }
-
-  /* todas as fatias ficam empilhadas, só uma visível por vez */
-  #bussola img{
-    position:absolute;
-    inset:0;
-    width:100%;
-    height:100%;
-    object-fit:contain;
-    opacity:0;
-    visibility:hidden;
-    pointer-events:none;
-    user-select:none;
-    -webkit-user-select:none;
-    -webkit-user-drag:none;
-  }
-  #bussola img.ativa{
-    opacity:1;
-    visibility:visible;
-  }
-
-  /* só aparece no iOS, antes de autorizar o sensor */
-  #ativar{
-    position:fixed;
-    inset:0;
-    width:100%;
-    height:100%;
-    border:0;
-    background:transparent;
-    color:#3a3a3a;
-    font:15px/1.4 system-ui, -apple-system, sans-serif;
-    letter-spacing:.5px;
-    cursor:pointer;
-  }
-  [hidden]{ display:none !important; }
 </style>
 </head>
 
 <body>
 
-<div id="bussola"></div>
-<button id="ativar" hidden>toque para ativar a bússola</button>
+<canvas id="bussola"></canvas>
 
 <script>
 (() => {
-'use strict';
+  'use strict';
 
-/* ---------------- configuração ---------------- */
+  /* ---------------------------------------------------------
+     1. CONFIGURAÇÃO
+     --------------------------------------------------------- */
 
-// coloque aqui TODOS os ângulos que possuem imagem
-const DIRECOES = [
-  0,13,25,38,50,63,75,88,
-  100,113,125,138,150,163,
-  175,188,200,213,225,238,
-  250,263,275,288,300,313,
-  325,338,350
-];
+  // Ângulos que possuem imagem (o "nome numérico" de cada fatia).
+  const DIRECOES = [
+    0,13,25,38,50,63,75,88,
+    100,113,125,138,150,163,
+    175,188,200,213,225,238,
+    250,263,275,288,300,313,
+    325,338,350
+  ];
 
-const PASTA_PRINCIPAL = './';
-const PASTA_FALLBACK  = './bussola/';
+  // Onde procurar os PNGs. Tenta a raiz, depois ./bussola/.
+  const CAMINHOS = ['./', './bussola/'];
 
-// 1 = responde na hora (mais nervoso) | 0.2 = bem suave (mais lento)
-const FATOR_RESPOSTA = 0.35;
+  /* ---------------------------------------------------------
+     2. ELEMENTOS / ESTADO
+     --------------------------------------------------------- */
 
-/* ---------------- tabela 0..359 -> direção mais próxima ---------------- */
-/* evita fazer o loop em cada evento do sensor */
+  const canvas = document.getElementById('bussola');
+  const ctx    = canvas.getContext('2d', { alpha: true, desynchronized: true });
 
-const TABELA = new Uint16Array(360);
+  const imagens = new Array(DIRECOES.length).fill(null); // índice -> HTMLImageElement
+  const lut     = new Int16Array(360).fill(-1);          // grau (0-359) -> índice
+  let ultimo    = -1;                                    // índice atualmente desenhado
 
-for (let g = 0; g < 360; g++) {
-  let melhor = DIRECOES[0];
-  let menor = 999;
-  for (let i = 0; i < DIRECOES.length; i++) {
-    const d = DIRECOES[i];
-    let diff = Math.abs(g - d);
-    if (diff > 180) diff = 360 - diff;
-    if (diff < menor) { menor = diff; melhor = d; }
-  }
-  TABELA[g] = melhor;
-}
+  /* ---------------------------------------------------------
+     3. CARREGAMENTO (com fallback de pasta + decode)
+     --------------------------------------------------------- */
 
-/* ---------------- cria e pré-carrega todas as fatias ---------------- */
+  function carregar(nome) {
+    return new Promise(resolve => {
+      const img = new Image();
+      let i = 0;
 
-const palco = document.getElementById('bussola');
-const camadas = new Map(); // ângulo -> <img>
+      img.onerror = () => {
+        i++;
+        if (i < CAMINHOS.length) {
+          img.src = CAMINHOS[i] + nome;      // tenta a próxima pasta
+        } else {
+          resolve(null);                     // não achou em lugar nenhum
+        }
+      };
 
-for (const d of DIRECOES) {
-  const img = new Image();
-  img.alt = '';
-  img.decoding = 'async';
-  img.loading = 'eager';
-  img.draggable = false;
-  img.src = PASTA_PRINCIPAL + d + '.png';
+      img.onload = () => {
+        // decode() garante que a imagem já está pronta pra pintar no canvas,
+        // então a troca depois é instantânea (zero decode em runtime).
+        if (img.decode) {
+          img.decode().catch(() => {}).then(() => resolve(img));
+        } else {
+          resolve(img);
+        }
+      };
 
-  // se não existir na raiz, tenta ./bussola/
-  img.addEventListener('error', () => {
-    if (img.dataset.fb) return;
-    img.dataset.fb = '1';
-    img.src = PASTA_FALLBACK + d + '.png';
-  });
-
-  camadas.set(d, img);
-  palco.appendChild(img);
-}
-
-// força a decodificação de tudo em background (deixa tudo pronto na memória)
-Promise.allSettled(
-  [...camadas.values()].map(img => img.decode ? img.decode() : Promise.resolve())
-).catch(() => {});
-
-/* ---------------- troca de fatia (instantânea) ---------------- */
-
-let direcaoAtual = null;
-
-function mostrar(d) {
-  if (d === direcaoAtual) return;
-
-  const antiga = camadas.get(direcaoAtual);
-  if (antiga) antiga.classList.remove('ativa');
-
-  const nova = camadas.get(d);
-  if (nova) nova.classList.add('ativa');
-
-  direcaoAtual = d;
-}
-
-mostrar(DIRECOES[0]);
-
-/* ---------------- leitura do sensor ---------------- */
-
-let bruto = null;          // último alpha recebido
-let suave = null;          // alpha filtrado
-let pendente = false;      // já tem um rAF agendado?
-let usandoAbsoluto = false;
-
-function loop() {
-  pendente = false;
-  if (bruto === null) return;
-
-  if (suave === null) {
-    suave = bruto;
-  } else {
-    // interpolação circular (trata a volta 359° -> 0°)
-    const delta = ((bruto - suave + 540) % 360) - 180;
-    suave = (suave + delta * FATOR_RESPOSTA + 360) % 360;
+      img.src = CAMINHOS[0] + nome;
+    });
   }
 
-  mostrar(TABELA[Math.round(suave) % 360]);
-}
+  /* ---------------------------------------------------------
+     4. CONSTRUÇÃO DA LUT (grau -> índice da imagem)
+     --------------------------------------------------------- */
 
-function onOrientacao(e) {
-  // se já temos leitura absoluta, ignora a relativa (evita briga entre eventos)
-  if (usandoAbsoluto && e.absolute === false) return;
-  if (e.absolute) usandoAbsoluto = true;
-
-  const a = e.alpha;
-  if (a === null || a === undefined || Number.isNaN(a)) return;
-
-  bruto = ((a % 360) + 360) % 360;
-
-  if (!pendente) {
-    pendente = true;
-    requestAnimationFrame(loop);
-  }
-}
-
-function iniciarSensor() {
-  if ('ondeviceorientationabsolute' in window) {
-    window.addEventListener('deviceorientationabsolute', onOrientacao, true);
-  }
-  window.addEventListener('deviceorientation', onOrientacao, true);
-}
-
-/* ---------------- permissão (iOS 13+) ---------------- */
-
-const precisaPermissao =
-  typeof DeviceOrientationEvent !== 'undefined' &&
-  typeof DeviceOrientationEvent.requestPermission === 'function';
-
-if (!precisaPermissao) {
-  iniciarSensor();
-} else {
-  const botao = document.getElementById('ativar');
-  botao.hidden = false;
-
-  botao.addEventListener('click', async () => {
-    try {
-      const resposta = await DeviceOrientationEvent.requestPermission();
-      if (resposta === 'granted') {
-        iniciarSensor();
-        botao.hidden = true;
-      }
-    } catch (err) {
-      console.warn('Permissão do sensor negada:', err);
+  function construirLUT() {
+    const disponiveis = [];
+    for (let i = 0; i < imagens.length; i++) {
+      if (imagens[i]) disponiveis.push(i);
     }
-  });
-}
+    if (!disponiveis.length) return;
+
+    // Para cada um dos 360 graus, acha o ângulo mais próximo UMA VEZ.
+    // Depois é só lut[grau] — sem loop nenhum durante o movimento.
+    for (let g = 0; g < 360; g++) {
+      let melhor = disponiveis[0];
+      let menor  = 361;
+
+      for (let k = 0; k < disponiveis.length; k++) {
+        const idx = disponiveis[k];
+        let diff = g - DIRECOES[idx];
+        if (diff < 0) diff = -diff;
+        if (diff > 180) diff = 360 - diff;
+
+        if (diff < menor) {
+          menor  = diff;
+          melhor = idx;
+        }
+      }
+
+      lut[g] = melhor;
+    }
+  }
+
+  /* ---------------------------------------------------------
+     5. DESENHO (troca imediata, sem reflow)
+     --------------------------------------------------------- */
+
+  function desenhar(idx) {
+    if (idx < 0 || idx === ultimo) return;
+
+    const img = imagens[idx];
+    if (!img) return;
+
+    ultimo = idx;
+
+    // Ajusta o backing store do canvas pro tamanho real da imagem (só uma vez).
+    if (canvas.width !== img.naturalWidth || canvas.height !== img.naturalHeight) {
+      canvas.width  = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+    }
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0);
+  }
+
+  /* ---------------------------------------------------------
+     6. SENSOR
+     --------------------------------------------------------- */
+
+  let modoAbsoluto = false;
+  let ativo        = false;
+  let pedindo      = false;
+
+  function aoOrientar(e) {
+    // Se já temos um evento absoluto, ignora os relativos (evita "briga").
+    if (e.type === 'deviceorientationabsolute' || e.absolute === true) {
+      modoAbsoluto = true;
+    } else if (modoAbsoluto) {
+      return;
+    }
+
+    // iOS entrega o rumo direto em webkitCompassHeading.
+    let grau = e.webkitCompassHeading;
+    if (typeof grau !== 'number' || !isFinite(grau)) grau = e.alpha;
+    if (typeof grau !== 'number' || !isFinite(grau)) return;
+
+    grau = ((grau % 360) + 360) % 360;
+
+    const idx = lut[grau | 0];
+    if (idx >= 0) desenhar(idx);
+  }
+
+  function escutar() {
+    window.addEventListener('deviceorientationabsolute', aoOrientar, true);
+    window.addEventListener('deviceorientation',         aoOrientar, true);
+  }
+
+  function iniciar() {
+    if (ativo || pedindo) return;
+    if (typeof DeviceOrientationEvent === 'undefined') {
+      console.warn('Sensor de orientação não suportado.');
+      return;
+    }
+
+    // iOS 13+ exige um gesto do usuário.
+    if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+      pedindo = true;
+      DeviceOrientationEvent.requestPermission()
+        .then(r => {
+          pedindo = false;
+          if (r === 'granted') { ativo = true; escutar(); }
+        })
+        .catch(() => { pedindo = false; });
+    } else {
+      ativo = true;
+      escutar();
+    }
+  }
+
+  /* ---------------------------------------------------------
+     7. BOOT
+     --------------------------------------------------------- */
+
+  (async function boot() {
+    // Carrega + decodifica TUDO antes de ligar o sensor.
+    await Promise.all(
+      DIRECOES.map((ang, i) =>
+        carregar(ang + '.png').then(img => { imagens[i] = img; })
+      )
+    );
+
+    construirLUT();
+
+    // Mostra alguma coisa na tela imediatamente.
+    for (let i = 0; i < imagens.length; i++) {
+      if (imagens[i]) { desenhar(i); break; }
+    }
+
+    // Tenta ligar o sensor já; no iOS o primeiro toque resolve.
+    iniciar();
+    document.addEventListener('click',    iniciar);
+    document.addEventListener('touchend', iniciar, { passive: true });
+  })();
 
 })();
 </script>
