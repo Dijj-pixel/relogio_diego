@@ -6,18 +6,10 @@
 <title>Bússola</title>
 
 <style>
-    :root{
-        color-scheme: dark;
-    }
+    :root{ color-scheme: dark; }
+    *{ box-sizing: border-box; }
 
-    *{
-        box-sizing: border-box;
-    }
-
-    html, body{
-        height: 100%;
-        margin: 0;
-    }
+    html, body{ height: 100%; margin: 0; }
 
     body{
         background: #000;
@@ -28,9 +20,8 @@
         touch-action: none;
     }
 
-    /* A bússola ocupa 80% da largura da tela e permanece quadrada.
-       min() garante que ela nunca estoure a altura da tela em telas
-       estreitas e altas — remova a parte ", 80vh" se quiser 80vw puro. */
+    /* 80% da largura da tela, sempre quadrada.
+       Tire ", 80vh" do min() se quiser 80vw puro mesmo que estoure a altura. */
     #palco{
         position: relative;
         width: min(80vw, 80vh);
@@ -48,7 +39,6 @@
         pointer-events: none;
     }
 
-    /* Tela de carregamento enquanto os sprites são pré-carregados/decodificados */
     #loading{
         position: fixed;
         inset: 0;
@@ -61,15 +51,12 @@
         align-items: center;
         transition: opacity .25s ease;
         z-index: 10;
+        text-align: center;
+        padding: 24px;
     }
 
-    #loading.escondido{
-        opacity: 0;
-        pointer-events: none;
-    }
+    #loading.escondido{ opacity: 0; pointer-events: none; }
 
-    /* Botão de permissão exigido pelo iOS 13+ (Safari) antes de liberar
-       o sensor de orientação. Some sozinho assim que não for necessário. */
     #permissao{
         position: fixed;
         inset: 0;
@@ -86,9 +73,7 @@
         z-index: 20;
     }
 
-    #permissao.visivel{
-        display: flex;
-    }
+    #permissao.visivel{ display: flex; }
 
     #permissao button{
         background: #fff;
@@ -111,6 +96,7 @@
         font-family: system-ui, sans-serif;
         font-size: 13px;
         display: none;
+        padding: 0 16px;
     }
 </style>
 </head>
@@ -121,14 +107,14 @@
     <img id="bussola" alt="">
 </div>
 
-<div id="loading">Carregando sprites…</div>
+<div id="loading">Procurando sprites…</div>
 
 <div id="permissao">
     <p>Este dispositivo exige sua permissão<br>para usar o sensor de orientação.</p>
     <button id="btnPermissao">Ativar bússola</button>
 </div>
 
-<div id="erro">Sensor de bússola não suportado neste dispositivo</div>
+<div id="erro"></div>
 
 <script>
 (() => {
@@ -137,118 +123,170 @@
 // Configuração
 // ---------------------------------------------------------------
 
-// Pasta onde estão os sprites numerados (ex.: ./bussola/0.png).
-// Se preferir usar os arquivos na raiz do site, troque para "./".
-const BASE_PATH = "./bussola/";
+// Candidatos de pasta, testados nessa ordem. O primeiro que tiver
+// "0.png" respondendo é usado pra varredura completa.
+const CANDIDATOS_DE_PASTA = ["./bussola/", "./"];
 
-// Ângulos que possuem sprite. Não precisam estar em ordem nem
-// igualmente espaçados — a tabela abaixo lida com isso sozinha.
-const direcoes = [
-    0,13,25,38,50,63,75,88,
-    100,113,125,138,150,163,
-    175,188,200,213,225,238,
-    250,263,275,288,300,313,
-    325,338,350
-];
+// Quantos graus, no máximo, o código varre procurando sprites (0-359).
+const MAX_ANGULO = 360;
+
+// Quantas tentativas de carregamento ficam em voo ao mesmo tempo
+// durante a varredura inicial.
+const LOTE_DE_DETECCAO = 24;
+
+// Fator do filtro de suavização aplicado à leitura do sensor
+// (0 = ignora leituras novas, 1 = sem suavização nenhuma).
+const FATOR_SUAVIZACAO = 0.15;
+
+const cache = {};       // angulo -> Image já carregada e decodificada
+let direcoes = [];      // lista ordenada dos ângulos realmente encontrados
+let tabelaDePonteiros = null; // grau inteiro (0-359) -> ângulo mais próximo
+
+const bussolaEl = document.getElementById("bussola");
+const loadingEl = document.getElementById("loading");
+const erroEl = document.getElementById("erro");
 
 // ---------------------------------------------------------------
-// Sistema de ponteiros: em vez de percorrer a lista de ângulos a
-// cada leitura do sensor, montamos UMA vez uma tabela com as 360
-// posições inteiras do círculo, cada uma já apontando direto para
-// o sprite mais próximo. Em runtime a leitura vira O(1): apenas
-// `tabelaDePonteiros[grauArredondado]`.
+// Detecção numérica dos sprites + pré-carregamento + decodificação,
+// tudo em uma única varredura.
+// ---------------------------------------------------------------
+function tentarCarregar(basePath, angulo){
+    return new Promise(resolve => {
+        const img = new Image();
+        img.onload = async () => {
+            try{ if(img.decode) await img.decode(); }catch(e){}
+            resolve(img);
+        };
+        img.onerror = () => resolve(null);
+        img.src = `${basePath}${angulo}.png`;
+    });
+}
+
+async function escolherPasta(){
+    for(const pasta of CANDIDATOS_DE_PASTA){
+        const teste = await tentarCarregar(pasta, 0);
+        if(teste){
+            cache[0] = teste;
+            return pasta;
+        }
+    }
+    return null;
+}
+
+async function detectarEPreCarregar(basePath){
+    const angulosPendentes = [];
+    for(let a = 1; a < MAX_ANGULO; a++) angulosPendentes.push(a);
+
+    let concluidos = 1; // o ângulo 0 já foi resolvido em escolherPasta()
+    const total = MAX_ANGULO;
+
+    // processa em lotes pra não abrir centenas de conexões simultâneas
+    for(let i = 0; i < angulosPendentes.length; i += LOTE_DE_DETECCAO){
+        const lote = angulosPendentes.slice(i, i + LOTE_DE_DETECCAO);
+        const resultados = await Promise.all(
+            lote.map(a => tentarCarregar(basePath, a).then(img => {
+                concluidos++;
+                loadingEl.textContent = `Procurando sprites… ${concluidos}/${total}`;
+                return [a, img];
+            }))
+        );
+        for(const [angulo, img] of resultados){
+            if(img) cache[angulo] = img;
+        }
+    }
+
+    direcoes = Object.keys(cache).map(Number).sort((a, b) => a - b);
+}
+
+// ---------------------------------------------------------------
+// Tabela de ponteiros: 360 posições, cada uma já resolvida pro
+// sprite mais próximo. Leitura em runtime é O(1).
 // ---------------------------------------------------------------
 function montarTabelaDePonteiros(angulos){
     const tabela = new Array(360);
-
     for(let grau = 0; grau < 360; grau++){
         let melhor = angulos[0];
         let menorDiferenca = Infinity;
-
         for(const d of angulos){
             let diff = Math.abs(grau - d);
-            diff = Math.min(diff, 360 - diff); // trata a volta 359° -> 0°
+            diff = Math.min(diff, 360 - diff);
             if(diff < menorDiferenca){
                 menorDiferenca = diff;
                 melhor = d;
             }
         }
-
         tabela[grau] = melhor;
     }
-
     return tabela;
 }
 
-const tabelaDePonteiros = montarTabelaDePonteiros(direcoes);
-
 // ---------------------------------------------------------------
-// Pré-carregamento + pré-decodificação
-// Um <img> só está realmente pronto pra troca instantânea depois
-// que o navegador terminou de DECODIFICAR o bitmap, não só de
-// baixar os bytes. Por isso usamos decode(), e só liberamos o
-// sensor depois que todos os sprites estiverem decodificados.
+// CAMADA 1 — leitura do sensor.
+// Só grava o valor bruto. Não mexe no DOM, não calcula nada pesado.
 // ---------------------------------------------------------------
-const cache = {};
-
-async function precarregarTudo(){
-    const loadingEl = document.getElementById("loading");
-    let carregadas = 0;
-
-    const tarefas = direcoes.map(angulo => {
-        const img = new Image();
-        img.src = `${BASE_PATH}${angulo}.png`;
-        cache[angulo] = img;
-
-        const pronta = (img.decode ? img.decode() : Promise.resolve())
-            .catch(() => {}) // um sprite faltando não deve travar os demais
-            .then(() => {
-                carregadas++;
-                loadingEl.textContent = `Carregando sprites… ${carregadas}/${direcoes.length}`;
-            });
-
-        return pronta;
-    });
-
-    await Promise.all(tarefas);
-
-    // primeiro frame já decodificado, exibido sem nenhum atraso
-    const bussolaEl = document.getElementById("bussola");
-    bussolaEl.src = cache[direcoes[0]].src;
-
-    loadingEl.classList.add("escondido");
-}
-
-// ---------------------------------------------------------------
-// Loop de leitura do sensor
-// ---------------------------------------------------------------
-let ultimaDirecao = null;
-const bussolaEl = document.getElementById("bussola");
+let anguloBruto = null;
 
 function aoReceberOrientacao(event){
-    const grau = event.alpha;
-    if(grau == null) return;
-
-    const grauInteiro = Math.round(((grau % 360) + 360) % 360);
-    const direcao = tabelaDePonteiros[grauInteiro];
-
-    if(direcao !== ultimaDirecao){
-        ultimaDirecao = direcao;
-        // já está em cache e decodificado -> troca imediata, sem rede
-        bussolaEl.src = cache[direcao].src;
-    }
+    if(event.alpha == null) return;
+    anguloBruto = event.alpha;
 }
 
+// ---------------------------------------------------------------
+// CAMADA 2 — processamento e renderização, desacoplada da leitura.
+// Roda em loop próprio (requestAnimationFrame), suaviza o ângulo
+// e avança o "ponteiro" um índice por vez, sem pular sprite.
+// ---------------------------------------------------------------
+let anguloFiltrado = null;
+let indiceAtual = 0;
+
+function diferencaAngular(alvo, atual){
+    // menor caminho angular de "atual" até "alvo", no intervalo [-180, 180]
+    return ((alvo - atual + 540) % 360) - 180;
+}
+
+function proximoIndice(atual, alvo, n){
+    if(atual === alvo) return atual;
+    const paraFrente = (alvo - atual + n) % n;
+    const paraTras = (atual - alvo + n) % n;
+    return paraFrente <= paraTras ? (atual + 1) % n : (atual - 1 + n) % n;
+}
+
+function loopDeRenderizacao(){
+    if(anguloBruto !== null && direcoes.length > 0){
+
+        // suaviza o ruído do sensor (filtro exponencial circular)
+        if(anguloFiltrado === null){
+            anguloFiltrado = anguloBruto;
+        }else{
+            anguloFiltrado = (anguloFiltrado
+                + diferencaAngular(anguloBruto, anguloFiltrado) * FATOR_SUAVIZACAO
+                + 360) % 360;
+        }
+
+        const grauInteiro = Math.round(((anguloFiltrado % 360) + 360) % 360);
+        const anguloAlvo = tabelaDePonteiros[grauInteiro];
+        const indiceAlvo = direcoes.indexOf(anguloAlvo);
+
+        if(indiceAlvo !== indiceAtual){
+            // avança só UM passo em direção ao alvo — nunca pula sprite,
+            // mesmo que o dispositivo gire rápido entre um frame e outro
+            indiceAtual = proximoIndice(indiceAtual, indiceAlvo, direcoes.length);
+            const angulo = direcoes[indiceAtual];
+            bussolaEl.src = cache[angulo].src;
+        }
+    }
+
+    requestAnimationFrame(loopDeRenderizacao);
+}
+
+// ---------------------------------------------------------------
+// Sensor: início + permissão (iOS 13+/Safari exige toque do usuário)
+// ---------------------------------------------------------------
 function iniciarSensor(){
     window.addEventListener("deviceorientationabsolute", aoReceberOrientacao, true);
     window.addEventListener("deviceorientation", aoReceberOrientacao, true);
 }
 
-// ---------------------------------------------------------------
-// Permissão do sensor (obrigatória no iOS 13+/Safari, precisa
-// acontecer a partir de um toque do usuário). Em outros navegadores
-// o sensor já começa a funcionar sozinho.
-// ---------------------------------------------------------------
 function precisaDePermissaoExplicita(){
     return typeof DeviceOrientationEvent !== "undefined"
         && typeof DeviceOrientationEvent.requestPermission === "function";
@@ -256,7 +294,8 @@ function precisaDePermissaoExplicita(){
 
 async function configurarSensor(){
     if(typeof DeviceOrientationEvent === "undefined"){
-        document.getElementById("erro").style.display = "block";
+        erroEl.textContent = "Sensor de bússola não suportado neste dispositivo";
+        erroEl.style.display = "block";
         return;
     }
 
@@ -277,7 +316,6 @@ async function configurarSensor(){
                 overlay.querySelector("p").textContent = "Não foi possível pedir permissão ao sensor.";
             }
         });
-
         return;
     }
 
@@ -288,7 +326,33 @@ async function configurarSensor(){
 // Boot
 // ---------------------------------------------------------------
 window.addEventListener("load", async () => {
-    await precarregarTudo();
+    const pasta = await escolherPasta();
+
+    if(!pasta){
+        loadingEl.classList.add("escondido");
+        erroEl.textContent = "Nenhum sprite encontrado (verifique se 0.png existe em ./bussola/ ou ./)";
+        erroEl.style.display = "block";
+        return;
+    }
+
+    await detectarEPreCarregar(pasta);
+
+    if(direcoes.length === 0){
+        loadingEl.classList.add("escondido");
+        erroEl.textContent = "Nenhum sprite pôde ser carregado";
+        erroEl.style.display = "block";
+        return;
+    }
+
+    console.log(`Bússola: ${direcoes.length} sprites detectados em "${pasta}":`, direcoes);
+
+    tabelaDePonteiros = montarTabelaDePonteiros(direcoes);
+
+    indiceAtual = 0;
+    bussolaEl.src = cache[direcoes[0]].src;
+    loadingEl.classList.add("escondido");
+
+    requestAnimationFrame(loopDeRenderizacao);
     configurarSensor();
 });
 
