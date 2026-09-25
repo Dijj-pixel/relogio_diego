@@ -1,254 +1,296 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="pt-br">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#000000">
 <title>Bússola</title>
+
 <style>
-  html, body {
-    margin: 0;
-    height: 100%;
-    background: #000;
-    overflow: hidden;
-  }
+    :root{
+        color-scheme: dark;
+    }
 
-  body {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    box-sizing: border-box;
-    padding: env(safe-area-inset-top) env(safe-area-inset-right)
-             env(safe-area-inset-bottom) env(safe-area-inset-left);
-    touch-action: manipulation;
-    -webkit-tap-highlight-color: transparent;
-    -webkit-user-select: none;
-    user-select: none;
-  }
+    *{
+        box-sizing: border-box;
+    }
 
-  #bussola {
-    width:  min(80vw, 80vh);
-    height: min(80vw, 80vh);
-    display: block;
-    pointer-events: none;
-  }
+    html, body{
+        height: 100%;
+        margin: 0;
+    }
+
+    body{
+        background: #000;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        overflow: hidden;
+        touch-action: none;
+    }
+
+    /* A bússola ocupa 80% da largura da tela e permanece quadrada.
+       min() garante que ela nunca estoure a altura da tela em telas
+       estreitas e altas — remova a parte ", 80vh" se quiser 80vw puro. */
+    #palco{
+        position: relative;
+        width: min(80vw, 80vh);
+        aspect-ratio: 1 / 1;
+    }
+
+    #palco img{
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        user-select: none;
+        -webkit-user-drag: none;
+        pointer-events: none;
+    }
+
+    /* Tela de carregamento enquanto os sprites são pré-carregados/decodificados */
+    #loading{
+        position: fixed;
+        inset: 0;
+        background: #000;
+        color: #666;
+        font-family: system-ui, sans-serif;
+        font-size: 14px;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        transition: opacity .25s ease;
+        z-index: 10;
+    }
+
+    #loading.escondido{
+        opacity: 0;
+        pointer-events: none;
+    }
+
+    /* Botão de permissão exigido pelo iOS 13+ (Safari) antes de liberar
+       o sensor de orientação. Some sozinho assim que não for necessário. */
+    #permissao{
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,.92);
+        color: #eee;
+        font-family: system-ui, sans-serif;
+        display: none;
+        flex-direction: column;
+        gap: 16px;
+        justify-content: center;
+        align-items: center;
+        text-align: center;
+        padding: 24px;
+        z-index: 20;
+    }
+
+    #permissao.visivel{
+        display: flex;
+    }
+
+    #permissao button{
+        background: #fff;
+        color: #000;
+        border: 0;
+        border-radius: 8px;
+        padding: 14px 28px;
+        font-size: 16px;
+        font-weight: 600;
+        cursor: pointer;
+    }
+
+    #erro{
+        position: fixed;
+        bottom: 16px;
+        left: 0;
+        right: 0;
+        text-align: center;
+        color: #ff4d4d;
+        font-family: system-ui, sans-serif;
+        font-size: 13px;
+        display: none;
+    }
 </style>
 </head>
 
 <body>
 
-<canvas id="bussola"></canvas>
+<div id="palco">
+    <img id="bussola" alt="">
+</div>
+
+<div id="loading">Carregando sprites…</div>
+
+<div id="permissao">
+    <p>Este dispositivo exige sua permissão<br>para usar o sensor de orientação.</p>
+    <button id="btnPermissao">Ativar bússola</button>
+</div>
+
+<div id="erro">Sensor de bússola não suportado neste dispositivo</div>
 
 <script>
 (() => {
-  'use strict';
 
-  /* ---------------------------------------------------------
-     1. CONFIGURAÇÃO
-     --------------------------------------------------------- */
+// ---------------------------------------------------------------
+// Configuração
+// ---------------------------------------------------------------
 
-  const DIRECOES = [
+// Pasta onde estão os sprites numerados (ex.: ./bussola/0.png).
+// Se preferir usar os arquivos na raiz do site, troque para "./".
+const BASE_PATH = "./bussola/";
+
+// Ângulos que possuem sprite. Não precisam estar em ordem nem
+// igualmente espaçados — a tabela abaixo lida com isso sozinha.
+const direcoes = [
     0,13,25,38,50,63,75,88,
     100,113,125,138,150,163,
     175,188,200,213,225,238,
     250,263,275,288,300,313,
     325,338,350
-  ];
+];
 
-  const CAMINHOS = ['./', './bussola/'];
+// ---------------------------------------------------------------
+// Sistema de ponteiros: em vez de percorrer a lista de ângulos a
+// cada leitura do sensor, montamos UMA vez uma tabela com as 360
+// posições inteiras do círculo, cada uma já apontando direto para
+// o sprite mais próximo. Em runtime a leitura vira O(1): apenas
+// `tabelaDePonteiros[grauArredondado]`.
+// ---------------------------------------------------------------
+function montarTabelaDePonteiros(angulos){
+    const tabela = new Array(360);
 
-  /* ---------------------------------------------------------
-     2. ELEMENTOS / ESTADO
-     --------------------------------------------------------- */
+    for(let grau = 0; grau < 360; grau++){
+        let melhor = angulos[0];
+        let menorDiferenca = Infinity;
 
-  const canvas = document.getElementById('bussola');
-  const ctx    = canvas.getContext('2d', { alpha: true, desynchronized: true });
-
-  const imagens = new Array(DIRECOES.length).fill(null);
-  const lut     = new Int16Array(360).fill(-1);
-  let ultimo    = -1;
-  let pronto    = false;   // só aceita sensor depois da LUT montada
-
-  /* ---------------------------------------------------------
-     3. CARREGAMENTO
-     --------------------------------------------------------- */
-
-  function carregar(nome) {
-    return new Promise(resolve => {
-      let i = 0;
-
-      const tentar = () => {
-        if (i >= CAMINHOS.length) { resolve(null); return; }
-
-        const img = new Image();
-        const src = CAMINHOS[i] + nome;
-        i++;
-
-        let resolvido = false;
-        const finalizar = (valor) => {
-          if (resolvido) return;
-          resolvido = true;
-          resolve(valor);
-        };
-
-        img.onload = () => {
-          if (img.decode) {
-            img.decode().then(() => finalizar(img)).catch(() => finalizar(img));
-          } else {
-            finalizar(img);
-          }
-        };
-
-        img.onerror = () => tentar();
-        img.src = src;
-      };
-
-      tentar();
-    });
-  }
-
-  /* ---------------------------------------------------------
-     4. LUT
-     --------------------------------------------------------- */
-
-  function construirLUT() {
-    const disponiveis = [];
-    for (let i = 0; i < imagens.length; i++) {
-      if (imagens[i]) disponiveis.push(i);
-    }
-    if (!disponiveis.length) return;
-
-    for (let g = 0; g < 360; g++) {
-      let melhor = disponiveis[0];
-      let menor  = 361;
-
-      for (let k = 0; k < disponiveis.length; k++) {
-        const idx = disponiveis[k];
-        let diff = g - DIRECOES[idx];
-        if (diff < 0) diff = -diff;
-        if (diff > 180) diff = 360 - diff;
-
-        if (diff < menor) {
-          menor  = diff;
-          melhor = idx;
+        for(const d of angulos){
+            let diff = Math.abs(grau - d);
+            diff = Math.min(diff, 360 - diff); // trata a volta 359° -> 0°
+            if(diff < menorDiferenca){
+                menorDiferenca = diff;
+                melhor = d;
+            }
         }
-      }
 
-      lut[g] = melhor;
-    }
-  }
-
-  /* ---------------------------------------------------------
-     5. DESENHO
-     --------------------------------------------------------- */
-
-  function desenhar(idx) {
-    if (idx < 0 || idx === ultimo) return;
-
-    const img = imagens[idx];
-    if (!img) return;
-
-    ultimo = idx;
-
-    if (canvas.width !== img.naturalWidth || canvas.height !== img.naturalHeight) {
-      canvas.width  = img.naturalWidth;
-      canvas.height = img.naturalHeight;
+        tabela[grau] = melhor;
     }
 
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(img, 0, 0);
-  }
+    return tabela;
+}
 
-  /* ---------------------------------------------------------
-     6. SENSOR — agora filtra por QUALIDADE, não por ordem
-     --------------------------------------------------------- */
+const tabelaDePonteiros = montarTabelaDePonteiros(direcoes);
 
-  function aoOrientar(e) {
-    if (!pronto) return;
+// ---------------------------------------------------------------
+// Pré-carregamento + pré-decodificação
+// Um <img> só está realmente pronto pra troca instantânea depois
+// que o navegador terminou de DECODIFICAR o bitmap, não só de
+// baixar os bytes. Por isso usamos decode(), e só liberamos o
+// sensor depois que todos os sprites estiverem decodificados.
+// ---------------------------------------------------------------
+const cache = {};
 
-    // 1) iOS: rumo magnético direto.
-    let grau = e.webkitCompassHeading;
-    let fonte = 'webkitCompassHeading';
+async function precarregarTudo(){
+    const loadingEl = document.getElementById("loading");
+    let carregadas = 0;
 
-    // 2) Android/Chrome: só aceita alpha se for ABSOLUTO.
-    if (typeof grau !== 'number' || !isFinite(grau)) {
-      const ehAbsoluto =
-        e.type === 'deviceorientationabsolute' || e.absolute === true;
+    const tarefas = direcoes.map(angulo => {
+        const img = new Image();
+        img.src = `${BASE_PATH}${angulo}.png`;
+        cache[angulo] = img;
 
-      if (!ehAbsoluto) return;          // <-- o pulo do gato: ignora relativo
+        const pronta = (img.decode ? img.decode() : Promise.resolve())
+            .catch(() => {}) // um sprite faltando não deve travar os demais
+            .then(() => {
+                carregadas++;
+                loadingEl.textContent = `Carregando sprites… ${carregadas}/${direcoes.length}`;
+            });
 
-      grau  = e.alpha;
-      fonte = 'alpha(absolute)';
+        return pronta;
+    });
+
+    await Promise.all(tarefas);
+
+    // primeiro frame já decodificado, exibido sem nenhum atraso
+    const bussolaEl = document.getElementById("bussola");
+    bussolaEl.src = cache[direcoes[0]].src;
+
+    loadingEl.classList.add("escondido");
+}
+
+// ---------------------------------------------------------------
+// Loop de leitura do sensor
+// ---------------------------------------------------------------
+let ultimaDirecao = null;
+const bussolaEl = document.getElementById("bussola");
+
+function aoReceberOrientacao(event){
+    const grau = event.alpha;
+    if(grau == null) return;
+
+    const grauInteiro = Math.round(((grau % 360) + 360) % 360);
+    const direcao = tabelaDePonteiros[grauInteiro];
+
+    if(direcao !== ultimaDirecao){
+        ultimaDirecao = direcao;
+        // já está em cache e decodificado -> troca imediata, sem rede
+        bussolaEl.src = cache[direcao].src;
+    }
+}
+
+function iniciarSensor(){
+    window.addEventListener("deviceorientationabsolute", aoReceberOrientacao, true);
+    window.addEventListener("deviceorientation", aoReceberOrientacao, true);
+}
+
+// ---------------------------------------------------------------
+// Permissão do sensor (obrigatória no iOS 13+/Safari, precisa
+// acontecer a partir de um toque do usuário). Em outros navegadores
+// o sensor já começa a funcionar sozinho.
+// ---------------------------------------------------------------
+function precisaDePermissaoExplicita(){
+    return typeof DeviceOrientationEvent !== "undefined"
+        && typeof DeviceOrientationEvent.requestPermission === "function";
+}
+
+async function configurarSensor(){
+    if(typeof DeviceOrientationEvent === "undefined"){
+        document.getElementById("erro").style.display = "block";
+        return;
     }
 
-    if (typeof grau !== 'number' || !isFinite(grau)) return;
+    if(precisaDePermissaoExplicita()){
+        const overlay = document.getElementById("permissao");
+        overlay.classList.add("visivel");
 
-    grau = ((grau % 360) + 360) % 360;
+        document.getElementById("btnPermissao").addEventListener("click", async () => {
+            try{
+                const resposta = await DeviceOrientationEvent.requestPermission();
+                if(resposta === "granted"){
+                    overlay.classList.remove("visivel");
+                    iniciarSensor();
+                }else{
+                    overlay.querySelector("p").textContent = "Permissão negada. Ative nas configurações do navegador.";
+                }
+            }catch(e){
+                overlay.querySelector("p").textContent = "Não foi possível pedir permissão ao sensor.";
+            }
+        });
 
-    const idx = lut[grau | 0];
-    if (idx >= 0) desenhar(idx);
-
-    // Diagnóstico opcional:
-    // console.log(fonte, grau.toFixed(1), '->', DIRECOES[idx]);
-  }
-
-  function escutar() {
-    window.addEventListener('deviceorientationabsolute', aoOrientar, true);
-    window.addEventListener('deviceorientation',         aoOrientar, true);
-  }
-
-  let ativo   = false;
-  let pedindo = false;
-
-  function iniciar() {
-    if (ativo || pedindo) return;
-    if (typeof DeviceOrientationEvent === 'undefined') {
-      console.warn('Sensor de orientação não suportado.');
-      return;
+        return;
     }
 
-    if (typeof DeviceOrientationEvent.requestPermission === 'function') {
-      pedindo = true;
-      DeviceOrientationEvent.requestPermission()
-        .then(r => {
-          pedindo = false;
-          if (r === 'granted') { ativo = true; escutar(); }
-        })
-        .catch(() => { pedindo = false; });
-    } else {
-      ativo = true;
-      escutar();
-    }
-  }
+    iniciarSensor();
+}
 
-  /* ---------------------------------------------------------
-     7. BOOT
-     --------------------------------------------------------- */
-
-  (async function boot() {
-    await Promise.all(
-      DIRECOES.map((ang, i) =>
-        carregar(ang + '.png').then(img => {
-          imagens[i] = img;
-          if (!img) console.warn('Faltando:', ang + '.png');
-        })
-      )
-    );
-
-    const ok = imagens.filter(Boolean).length;
-    console.log(`Imagens carregadas: ${ok}/${DIRECOES.length}`);
-
-    construirLUT();
-    pronto = true;
-
-    // Desenha a fatia inicial (a mais próxima de 0° que existe).
-    const inicial = lut[0];
-    if (inicial >= 0) desenhar(inicial);
-
-    iniciar();
-    document.addEventListener('click',    iniciar);
-    document.addEventListener('touchend', iniciar, { passive: true });
-  })();
+// ---------------------------------------------------------------
+// Boot
+// ---------------------------------------------------------------
+window.addEventListener("load", async () => {
+    await precarregarTudo();
+    configurarSensor();
+});
 
 })();
 </script>
